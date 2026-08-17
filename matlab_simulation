@@ -1,0 +1,100 @@
+clear;
+clc;
+close all;
+
+%% Motor parameters
+J  = 0.01;       % kg.m^2
+b  = 0.001;      % N.m.s
+Kt = 0.05;       % N.m/A
+Ke = 0.05;       % V.s/rad
+R  = 1.0;        % Ohm
+L  = 0.5;        % H
+
+%% Speed limiter
+RPM_limit = 400;
+
+%% PI controller
+Kp = 0.8;
+Ki = 2.0;
+
+%% Simulation
+dt = 0.001;
+T  = 5;
+t  = 0:dt:T;
+
+%% States
+omega = zeros(size(t));     % rad/s
+i     = zeros(size(t));     % motor current
+rpm   = zeros(size(t));     % RPM
+pwm   = zeros(size(t));     % 0-1
+
+integral_error = 0;
+
+%% Throttle request
+requested_RPM = 600;
+
+%% Load torque
+TL = zeros(size(t));
+
+% Apply a load disturbance at 3 seconds
+TL(t >= 3) = 0.03;
+
+%% Simulation loop
+for k = 1:length(t)-1
+
+    %% Speed feedback
+    rpm(k) = omega(k) * 60/(2*pi);
+
+    %% Speed limiting
+    target_RPM = min(requested_RPM, RPM_limit);
+
+    %% Error
+    error = target_RPM - rpm(k);
+
+    %% PI controller
+    integral_error = integral_error + error*dt;
+
+    control = Kp*error + Ki*integral_error;
+
+    %% PWM saturation
+    pwm(k) = max(0, min(1, control/100));
+
+    %% Motor voltage
+    V = pwm(k) * 12;
+
+    %% Electrical dynamics
+    di = (V - R*i(k) - Ke*omega(k))/L;
+    i(k+1) = i(k) + di*dt;
+
+    %% Mechanical dynamics
+    domega = (Kt*i(k) - b*omega(k) - TL(k))/J;
+    omega(k+1) = omega(k) + domega*dt;
+
+end
+
+rpm(end) = omega(end)*60/(2*pi);
+pwm(end) = pwm(end-1);
+
+%% Plot RPM
+figure;
+
+plot(t,rpm,'LineWidth',1.5);
+hold on;
+
+yline(RPM_limit,'--','Speed Limit');
+
+xlabel('Time (s)');
+ylabel('Wheel Speed (RPM)');
+title('V1 Closed-Loop Speed Limiter');
+grid on;
+legend('Actual RPM','Maximum RPM');
+
+%% Plot PWM
+figure;
+
+plot(t,pwm*100,'LineWidth',1.5);
+
+xlabel('Time (s)');
+ylabel('PWM Duty Cycle (%)');
+title('Controller Output');
+grid on;
